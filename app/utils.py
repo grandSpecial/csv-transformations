@@ -105,7 +105,6 @@ def transform_data(filename, group_filter=None, **filters):
     df_pivot["Avg"] = round(
         (df_pivot.loc[:, range(0, 11)] * pd.Series(range(0, 11), index=range(0, 11))).sum(axis=1) / total_counts, 2
     )
-    df_picot
 
     # Ensure all computed columns exist and have float type
     for col in ["Low", "Mod", "High", "Avg"]:
