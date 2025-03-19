@@ -98,12 +98,14 @@ def transform_data(filename, group_filter=None, **filters):
 
     # Compute final categorical percentages
     total_counts = df_pivot.loc[:, range(0, 11)].sum(axis=1).replace(0, 1)
+    df_pivot["STD"] = df_pivot.loc[:, range(0, 11)].std(axis=1).round(2)
     df_pivot["Low"] = round(df_pivot.loc[:, range(0, 7)].sum(axis=1) / total_counts, 2)
     df_pivot["Mod"] = round(df_pivot.loc[:, range(7, 9)].sum(axis=1) / total_counts, 2)
     df_pivot["High"] = round(df_pivot.loc[:, range(9, 11)].sum(axis=1) / total_counts, 2)
     df_pivot["Avg"] = round(
         (df_pivot.loc[:, range(0, 11)] * pd.Series(range(0, 11), index=range(0, 11))).sum(axis=1) / total_counts, 2
     )
+    df_picot
 
     # Ensure all computed columns exist and have float type
     for col in ["Low", "Mod", "High", "Avg"]:
