@@ -26,3 +26,4 @@ typing_extensions==4.12.2
 tzdata==2025.1
 uvicorn==0.27.1
 openai==1.68.2
+python-dotenv==1.1.0
