@@ -232,5 +232,6 @@ def build_csv_from_typeform(form_id):
             row[question_text] = value
 
     df = pd.DataFrame(rows)
-    return df.to_json(orient="records")
+    return json.loads(df.to_json(orient="records"))
+
 
