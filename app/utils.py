@@ -213,9 +213,14 @@ def get_typeforms():
     r = requests.get(base_url + endpoint, headers={"Authorization": f"Bearer {TYPEFORM_API_KEY}"})
     return r.json()
 
+def clean(text):
+    if not isinstance(text, str):
+        return text
+    return text.replace("\n", " ").replace("\r", " ").strip()
+
 def build_csv_from_typeform(form_id):
     form = get_form(form_id)
-    questions = {field["id"]: field["title"] for field in form["fields"]}
+    questions = {field["id"]: clean(field["title"]) for field in form["fields"]}
 
     responses = get_responses(form_id)
 
@@ -224,14 +229,15 @@ def build_csv_from_typeform(form_id):
         row = {}
         answers = r.get("answers", [])
         row["#"] = r.get("response_id")
-        rows.append(row)
         for answer in answers:
             question_id = answer.get("field", {}).get("id")
             question_text = questions.get(question_id, question_id)
-            value = answer.get("text") or answer.get("number") or answer.get("choice", {}).get("label")
+            value = clean(answer.get("text") or answer.get("number") or answer.get("choice", {}).get("label"))
             row[question_text] = value
+        rows.append(row)
 
     df = pd.DataFrame(rows)
     return json.loads(df.to_json(orient="records"))
+
 
 
