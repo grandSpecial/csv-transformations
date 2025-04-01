@@ -4,9 +4,12 @@ from openai import OpenAI
 import os
 from dotenv import load_dotenv
 import json
+import requests
 load_dotenv()
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+TYPEFORM_API_KEY = os.getenv("TYPEFORM_API_KEY")
+base_url = "https://api.typeform.com"
 
 class PreProcess:
     """Pre-process CSV and perform various operations"""
@@ -185,4 +188,49 @@ def summarize(filename, question, group_filter=None, **filters):
     
     output = response.output[0].content[0].text
     return json.dumps(output)
+
+def get_responses(form_id):
+    endpoint = f"/forms/{form_id}/responses?page_size=1000"
+    all_responses = []
+    url = base_url + endpoint
+    headers = {"Authorization": f"Bearer {TYPEFORM_API_KEY}"}
+
+    while url:
+        r = requests.get(url, headers=headers)
+        data = r.json()
+        all_responses.extend(data["items"])
+        url = data.get("_links", {}).get("next")  # paginate
+
+    return all_responses
+
+def get_form(form_id):
+    endpoint = f"/forms/{form_id}"
+    r = requests.get(base_url + endpoint, headers={"Authorization": f"Bearer {TYPEFORM_API_KEY}"})
+    return r.json()
+
+def get_typeforms():
+    endpoint = "/forms?page_size=200"
+    r = requests.get(base_url + endpoint, headers={"Authorization": f"Bearer {TYPEFORM_API_KEY}"})
+    return r.json()
+
+def build_csv_from_typeform(form_id):
+    form = get_form(form_id)
+    questions = {field["id"]: field["title"] for field in form["fields"]}
+
+    responses = get_responses(form_id)
+
+    rows = []
+    for r in responses:
+        row = {}
+        answers = r.get("answers", [])
+        row["#"] = r.get("response_id")
+        rows.append(row)
+        for answer in answers:
+            question_id = answer.get("field", {}).get("id")
+            question_text = questions.get(question_id, question_id)
+            value = answer.get("text") or answer.get("number") or answer.get("choice", {}).get("label")
+            row[question_text] = value
+
+    df = pd.DataFrame(rows)
+    return df.to_json(orient="records")
 

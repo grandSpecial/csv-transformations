@@ -4,7 +4,7 @@ import json
 import pandas as pd
 import os
 from typing import Optional, Dict
-from app.utils import PreProcess, summarize
+from app.utils import PreProcess, summarize, build_csv_from_typeform, get_typeforms
 
 app = FastAPI()
 
@@ -357,3 +357,11 @@ async def summarize_endpoint(
         if os.path.exists("temp_upload.csv"):
             os.remove("temp_upload.csv")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/get_forms")
+def get_forms():
+    return get_typeforms()
+
+@app.post("/get_csv")
+async def get_csv(form_id: str):
+    return build_csv_from_typeform(form_id)
