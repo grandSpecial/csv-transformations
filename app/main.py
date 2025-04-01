@@ -1,10 +1,11 @@
-from fastapi import FastAPI, UploadFile, HTTPException, Query
+from fastapi import FastAPI, UploadFile, HTTPException, Query, Depends
 from fastapi.responses import JSONResponse
 import json
 import pandas as pd
 import os
 from typing import Optional, Dict
 from app.utils import PreProcess, summarize, build_csv_from_typeform, get_typeforms
+from app.security import verify_api_key
 
 app = FastAPI()
 
@@ -16,7 +17,8 @@ async def create_counts_table(
     ),
     group_filter: Optional[str] = Query(
         None, description="Filter by group membership (Low, Mod, High) for a specific question. Example: 'I am excited to work most days.:Low'"
-    )
+    ),
+    _: bool = Depends(verify_api_key),  # Move auth to the end
 ):
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="File must be a CSV")
@@ -150,7 +152,8 @@ async def create_correlation_matrix(
     group_filter: Optional[str] = Query(
         None, 
         description="Filter by group membership (Low, Mod, High) for a specific question. Example: 'I am excited to work most days.:Low'"
-    )
+    ),
+    _: bool = Depends(verify_api_key),  # Move auth to the end
 ):
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="File must be a CSV")
@@ -273,7 +276,8 @@ async def summarize_endpoint(
     group_filter: Optional[str] = Query(
         None, 
         description="Optional group filter in format 'Question:Group'. Example: 'I am excited to work most days.:Low'"
-    )
+    ),
+    _: bool = Depends(verify_api_key),  # Move auth to the end
 ):
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="File must be a CSV")
@@ -344,24 +348,14 @@ async def summarize_endpoint(
         if os.path.exists("temp_upload.csv"):
             os.remove("temp_upload.csv")
         raise HTTPException(status_code=500, detail=str(e))
-        
-        # Call the summarize function with the temporary file, question, and filters
-        result = summarize(temp_file, question, **parsed_filters)
-        
-        # Clean up the temporary file
-        os.remove(temp_file)
-        
-        return JSONResponse(content=result)
-    except Exception as e:
-        # Clean up the temporary file if it still exists
-        if os.path.exists("temp_upload.csv"):
-            os.remove("temp_upload.csv")
-        raise HTTPException(status_code=500, detail=str(e))
-    
+
 @app.get("/get_forms")
-def get_forms():
+def get_forms(_: bool = Depends(verify_api_key)):
     return get_typeforms()
 
 @app.post("/get_csv")
-async def get_csv(form_id: str):
+async def get_csv(
+    form_id: str,
+    _: bool = Depends(verify_api_key)
+):
     return build_csv_from_typeform(form_id)

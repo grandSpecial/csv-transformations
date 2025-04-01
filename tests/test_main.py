@@ -3,11 +3,31 @@ from fastapi.testclient import TestClient
 import pandas as pd
 import os
 import sys
+from dotenv import load_dotenv
 
 from app.main import app
 
+load_dotenv()
+
 # Use simple initialization
 client = TestClient(app)
+
+def get_test_headers():
+    """Get headers with test API key"""
+    api_key = os.getenv("API_KEY", "test-key")
+    return {"Authorization": f"Bearer {api_key}"}
+
+@pytest.fixture
+def auth_client():
+    """Fixture for authenticated client"""
+    headers = get_test_headers()
+    def _make_request(*args, **kwargs):
+        if "headers" in kwargs:
+            kwargs["headers"].update(headers)
+        else:
+            kwargs["headers"] = headers
+        return client.request(*args, **kwargs)
+    return _make_request
 
 @pytest.fixture
 def sample_csv():
@@ -24,15 +44,15 @@ def sample_csv():
     if os.path.exists(filename):
         os.remove(filename)
 
-def test_create_counts_table_no_filters(sample_csv):
+def test_create_counts_table_no_filters(sample_csv, auth_client):
     with open(sample_csv, "rb") as f:
-        response = client.post(
+        response = auth_client(
+            "POST",
             "/create_counts_table",
             files={"file": ("test.csv", f, "text/csv")}
         )
     assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data, list)
+    assert isinstance(response.json(), list)
     # Add more specific assertions based on your transform_data function
 
 def test_create_counts_table_with_filters(sample_csv):
@@ -90,4 +110,13 @@ def test_invalid_filter_format():
     finally:
         # Clean up the test file
         if os.path.exists(filename):
-            os.remove(filename) 
+            os.remove(filename)
+
+def test_unauthorized_access(sample_csv):
+    with open(sample_csv, "rb") as f:
+        response = client.post(
+            "/create_counts_table",
+            files={"file": ("test.csv", f, "text/csv")}
+        )
+    assert response.status_code == 401
+    assert "Invalid API key" in response.json()["detail"] 
