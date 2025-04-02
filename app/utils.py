@@ -143,7 +143,7 @@ def summarize(filename, question, group_filter=None, **filters):
     PP = PreProcess(filename, group_filter=group_filter, **filters)
     
     # Extract responses for the given question from the melted (long format) data
-    df_question = PP.df_melt[PP.df_melt["Question"] == question]
+    df_question = PP.df_melt[PP.df_melt["Question"] == question.strip()]
     if df_question.empty:
         raise ValueError(f"No responses found for question: {question}")
     
