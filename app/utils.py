@@ -232,7 +232,16 @@ def build_csv_from_typeform(form_id):
         for answer in answers:
             question_id = answer.get("field", {}).get("id")
             question_text = questions.get(question_id, question_id)
-            value = clean(answer.get("text") or answer.get("number") or answer.get("choice", {}).get("label"))
+            value = clean(
+                answer.get("text") or 
+                answer.get("number") or 
+                answer.get("email") or
+                answer.get("long_text") or
+                answer.get("multiple_choice") or
+                answer.get("opinion_scale") or
+                answer.get("short_text") or     
+                answer.get("choice", {}).get("label")
+            )
             row[question_text] = value
         rows.append(row)
 
