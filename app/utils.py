@@ -221,32 +221,28 @@ def clean(text):
 def build_csv_from_typeform(form_id):
     form = get_form(form_id)
     questions = {field["id"]: clean(field["title"]) for field in form["fields"]}
-
     responses = get_responses(form_id)
-
     rows = []
+
     for r in responses:
         row = {}
-        answers = r.get("answers", [])
         row["#"] = r.get("response_id")
-        for answer in answers:
+        for answer in r.get("answers", []):
             question_id = answer.get("field", {}).get("id")
             question_text = questions.get(question_id, question_id)
-            value = clean(
-                answer.get("text") or 
-                answer.get("number") or 
-                answer.get("email") or
-                answer.get("long_text") or
-                answer.get("multiple_choice") or
-                answer.get("opinion_scale") or
-                answer.get("short_text") or     
-                answer.get("choice", {}).get("label")
-            )
+            t = answer.get('type')
+            a = answer.get(t)
+            if isinstance(a, dict):
+                a = a.get("label") or a.get("labels")
+            if isinstance(a, list):
+                a = ", ".join(a)
+            value = clean(a)
             row[question_text] = value
         rows.append(row)
 
     df = pd.DataFrame(rows)
     return json.loads(df.to_json(orient="records"))
+
 
 
 
