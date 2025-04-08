@@ -24,6 +24,9 @@ class PreProcess:
         # Trim column names to avoid trailing spaces
         df.columns = df.columns.str.strip()
 
+        # Store original dataframe before numeric filtering
+        self.original_df = df.copy()
+
         # Define valid operators
         ops = {
             "=": operator.eq,
@@ -45,6 +48,9 @@ class PreProcess:
                 raise ValueError(f"Invalid filter format: {key}. Expected 'column operator value'.")
         print('filters applied')
 
+        # Store filtered respondent IDs
+        filtered_respondents = df["#"].unique()
+
         # 🔹 **Find Respondents in Selected Group Before Pivoting**
         if group_filter:
             question = group_filter.get("question")
@@ -58,42 +64,45 @@ class PreProcess:
             if group not in ["Low", "Mod", "High"]:
                 raise ValueError("Invalid group. Must be 'Low', 'Mod', or 'High'.")
 
-            # Melt dataset to long format for group filtering
-            df_melt = df.melt(id_vars=["#"], var_name="Question", value_name="Answer")
-            df_melt['Answer'] = pd.to_numeric(df_melt['Answer'], errors='coerce')
-            df_melt.dropna(inplace=True)
-            df_melt["Answer"] = df_melt["Answer"].astype(int)
+            # Melt only numeric columns for group filtering
+            numeric_df = df.melt(id_vars=["#"], var_name="Question", value_name="Answer")
+            numeric_df['Answer'] = pd.to_numeric(numeric_df['Answer'], errors='coerce')
+            numeric_df = numeric_df.dropna()
+            numeric_df["Answer"] = numeric_df["Answer"].astype(int)
 
             # Identify respondents who belong to the selected group
             if group == "Low":
-                respondent_ids = df_melt[
-                    (df_melt["Question"] == question) & (df_melt["Answer"].between(0, 6))
+                respondent_ids = numeric_df[
+                    (numeric_df["Question"] == question) & (numeric_df["Answer"].between(0, 6))
                 ]["#"].unique()
             elif group == "Mod":
-                respondent_ids = df_melt[
-                    (df_melt["Question"] == question) & (df_melt["Answer"].between(7, 8))
+                respondent_ids = numeric_df[
+                    (numeric_df["Question"] == question) & (numeric_df["Answer"].between(7, 8))
                 ]["#"].unique()
             elif group == "High":
-                respondent_ids = df_melt[
-                    (df_melt["Question"] == question) & (df_melt["Answer"].between(9, 10))
+                respondent_ids = numeric_df[
+                    (numeric_df["Question"] == question) & (numeric_df["Answer"].between(9, 10))
                 ]["#"].unique()
         else:
-            respondent_ids = df["#"].unique() 
+            respondent_ids = filtered_respondents
 
-        # Filter dataset based on selected respondents
-        df = df[df["#"].isin(respondent_ids)]
-
-        # 🔹 **Proceed with Normal Transformation After Filtering**
-        df_melt = df.melt(id_vars=["#"], var_name="Question", value_name="Answer")
-        df_melt['Answer'] = pd.to_numeric(df_melt['Answer'], errors='coerce')
-        df_melt.dropna(inplace=True)
-        df_melt["Answer"] = df_melt["Answer"].astype(int)
+        # Filter both original and numeric dataframes based on selected respondents
+        self.original_df = self.original_df[self.original_df["#"].isin(respondent_ids)]
+        
+        # Create melted dataframe for numeric analysis
+        df_numeric = self.original_df.melt(id_vars=["#"], var_name="Question", value_name="Answer")
+        df_numeric['Answer'] = pd.to_numeric(df_numeric['Answer'], errors='coerce')
+        # Only drop NA for numeric answers while keeping text responses
+        self.df_melt = df_numeric
+        
+        # Create a separate clean numeric dataframe for statistical operations
+        self.df_melt_numeric = df_numeric.dropna().copy()
+        self.df_melt_numeric.loc[:, "Answer"] = self.df_melt_numeric["Answer"].astype(int)
         print("melt done")
-        self.df_melt = df_melt  # Already filtered based on respondent_ids
 
     def count_data(self):
         try:
-            df_pivot = self.df_melt.pivot_table(index='Question', columns='Answer', aggfunc='size', fill_value=0)
+            df_pivot = self.df_melt_numeric.pivot_table(index='Question', columns='Answer', aggfunc='size', fill_value=0)
             df_pivot = df_pivot.reindex(columns=list(range(0, 11)), fill_value=0)
             df_pivot.reset_index(inplace=True)
             print("pivot done")
@@ -124,7 +133,7 @@ class PreProcess:
         """
         try:
             # Pivot wide: rows are respondents, columns are questions, values are answers
-            df_wide = self.df_melt.pivot(index="#", columns="Question", values="Answer")
+            df_wide = self.df_melt_numeric.pivot(index="#", columns="Question", values="Answer")
             # Compute correlation matrix for the questions
             correlation_matrix = df_wide.corr()
             print("correlation matrix computed")
@@ -142,12 +151,14 @@ def summarize(filename, question, group_filter=None, **filters):
     # Instantiate PreProcess to apply filters (and group_filter if provided)
     PP = PreProcess(filename, group_filter=group_filter, **filters)
     
-    # Extract responses for the given question from the melted (long format) data
-    df_question = PP.df_melt[PP.df_melt["Question"] == question.strip()]
+    # Extract responses for the given question from the original filtered data
+    df_question = PP.original_df[["#", question]]
+    df_question = df_question.dropna()
+    
     if df_question.empty:
         raise ValueError(f"No responses found for question: {question}")
     
-    answers_list = df_question["Answer"].dropna().tolist()
+    answers_list = df_question[question].tolist()
     # Combine responses into one string, each on a new line
     answers = "\n".join(str(answer) for answer in answers_list)
     
@@ -165,6 +176,7 @@ def summarize(filename, question, group_filter=None, **filters):
                             "in long answer responses from respondents. You are given responses to a particular "
                             "question and work through the cause of the feelings of people, how they are related "
                             "and what this should mean to the researchers."
+                            "ALways start your summary with a description of the filters that were applied to the dataset."
                         )
                     }
                 ]
@@ -176,7 +188,9 @@ def summarize(filename, question, group_filter=None, **filters):
                         "type": "input_text",
                         "text": (
                             f"The following are responses to the question, '{question}'. "
-                            f"The following filters were also applied: {str(filters)}"
+                            f"The following answer filters were applied: {str(group_filter)}..."
+                            "Group filters are used to filter the dataset by answer ranges, like with a Net Promoter Score"
+                            f"The following group filters were also applied: {str(filters)}"
                             f"Please summarize and provide insights.\n\n{answers}"
                         )
                     }
