@@ -14,8 +14,10 @@ base_url = "https://api.typeform.com"
 class PreProcess:
     """Pre-process CSV and perform various operations"""
     def __init__(self, filename, group_filter=None, **filters):
-        print("start")
+        print("PreProcess initialization started")
+        print("Received filters:", filters)
         df = pd.read_csv(filename)
+        print("DataFrame columns:", df.columns.tolist())
         
         # Drop unwanted columns
         if "Network ID" in df.columns:
@@ -23,6 +25,7 @@ class PreProcess:
 
         # Trim column names to avoid trailing spaces
         df.columns = df.columns.str.strip()
+        print("Trimmed DataFrame columns:", df.columns.tolist())
 
         # Store original dataframe before numeric filtering
         self.original_df = df.copy()
@@ -38,15 +41,20 @@ class PreProcess:
         }
 
         # Apply filtering based on provided arguments
-        for key, value in filters.items():
-            parts = key.split(" ")
-            if len(parts) == 2:
-                col, op = parts
-                if col in df.columns and op in ops:
-                    df = df[ops[op](df[col], value)]
+        print("Applying filters...")
+        for col, filter_info in filters.items():
+            print(f"Processing filter for column: {col}")
+            op = filter_info["operator"]
+            value = filter_info["value"]
+            print(f"Column: {col}, Operator: {op}, Value: {value}")
+            if col in df.columns and op in ops:
+                print(f"Applying filter: {col} {op} {value}")
+                df = df[ops[op](df[col], value)]
+                print(f"Filtered DataFrame shape: {df.shape}")
+                print(f"Filtered DataFrame head:\n{df.head()}")
             else:
-                raise ValueError(f"Invalid filter format: {key}. Expected 'column operator value'.")
-        print('filters applied')
+                print(f"Column {col} not in DataFrame or operator {op} not valid")
+        print('Filters applied')
 
         # Store filtered respondent IDs
         filtered_respondents = df["#"].unique()

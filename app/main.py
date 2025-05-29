@@ -6,6 +6,7 @@ import os
 from typing import Optional, Dict
 from app.utils import PreProcess, summarize, build_csv_from_typeform, get_typeforms
 from app.security import verify_api_key
+from urllib.parse import unquote
 
 app = FastAPI()
 
@@ -34,44 +35,84 @@ async def create_counts_table(
     # Parse filters (pre-transform and post-transform)
     if filters:
         try:
-            for item in filters.split(","):
-                parts = item.strip().split(" ", 2)  # Split into max 3 parts: column, operator, value
-                if len(parts) != 3:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Each filter must be in the format 'column operator value'. Example: 'Age >= 30, Gender = Female, Avg >= 4.5'"
-                    )
+            # URL decode the filters string
+            filters = unquote(filters)
+            print("Decoded filters:", filters)
+            
+            # Instead of splitting on commas, we'll process the entire string as one filter
+            item = filters.strip()
+            print(f"\nProcessing filter item: '{item}'")
+            
+            # Find the last occurrence of each operator to handle spaces in column names
+            last_operator_pos = -1
+            last_operator = None
+            
+            # First, try to find the last occurrence of each operator
+            print("Trying to find operators with spaces...")
+            for op in sorted(valid_operators, key=len, reverse=True):  # Sort by length to match longer operators first
+                # Look for the operator with spaces around it to avoid matching parts of words
+                search_str = f" {op} "
+                pos = item.rfind(search_str)
+                print(f"Looking for '{search_str}' in '{item}', found at position: {pos}")
+                if pos > last_operator_pos:
+                    last_operator_pos = pos
+                    last_operator = op
+                    print(f"Found operator '{op}' at position {pos}")
+            
+            # If no operator found with spaces, try without spaces
+            if last_operator_pos == -1:
+                print("No operators found with spaces, trying without spaces...")
+                for op in sorted(valid_operators, key=len, reverse=True):
+                    pos = item.rfind(op)
+                    print(f"Looking for '{op}' in '{item}', found at position: {pos}")
+                    if pos > last_operator_pos:
+                        last_operator_pos = pos
+                        last_operator = op
+                        print(f"Found operator '{op}' at position {pos}")
 
-                col, op, val = parts
-                col = col.strip()
-                op = op.strip()
-                val = val.strip().strip("'\"")  # Remove surrounding quotes if present
+            if last_operator_pos == -1:
+                print("No valid operator found in the filter")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"No valid operator found in filter: {item}"
+                )
 
-                if op not in valid_operators:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Invalid operator '{op}'. Allowed operators: {', '.join(valid_operators)}"
-                    )
+            # Split on the last occurrence of the operator
+            col = item[:last_operator_pos].strip()
+            # Get the value part and remove any leading operator
+            val = item[last_operator_pos + len(last_operator):].strip().strip("'\"")  # Remove surrounding quotes if present
+            # Remove any leading operator from the value
+            for op in valid_operators:
+                if val.startswith(op):
+                    val = val[len(op):].strip()
+                    break
 
-                if not col or not val:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Filter keys and values cannot be empty"
-                    )
+            if not col or not val:
+                print("Empty column or value after splitting")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Filter keys and values cannot be empty"
+                )
 
-                # Convert numeric values properly
-                if val.replace('.', '', 1).isdigit():  # Checks if it's a number (int or float)
-                    val = float(val) if '.' in val else int(val)
+            print(f"Successfully parsed filter - Column: '{col}', Operator: '{last_operator}', Value: '{val}'")
 
-                # Separate filters for original dataset vs. computed columns
-                if col in ["Low", "Mod", "High", "Avg"]:
-                    post_transform_filters[f"{col} {op}"] = val
-                else:
-                    pre_transform_filters[f"{col} {op}"] = val
+            # Convert numeric values properly
+            if val.replace('.', '', 1).isdigit():  # Checks if it's a number (int or float)
+                val = float(val) if '.' in val else int(val)
+
+            # Separate filters for original dataset vs. computed columns
+            if col in ["Low", "Mod", "High", "Avg"]:
+                post_transform_filters[col] = {"operator": last_operator, "value": val}
+            else:
+                pre_transform_filters[col] = {"operator": last_operator, "value": val}
 
         except HTTPException:
             raise
         except Exception as e:
+            print(f"Error processing filter: {str(e)}")
+            print(f"Error type: {type(e)}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid filter format. Must be 'column operator value'. Error: {str(e)}"
@@ -123,8 +164,9 @@ async def create_counts_table(
         print("file processed")
         # Apply post-transform filters on "Low", "Mod", "High", "Avg"
         if result_df is not None and not result_df.empty:
-            for key, value in post_transform_filters.items():
-                col, op = key.split(" ", 1)  # Extract column and operator
+            for col, filter_info in post_transform_filters.items():
+                op = filter_info["operator"]
+                value = filter_info["value"]
                 if col in result_df.columns:
                     result_df = result_df[eval(f"result_df[col] {op} value")]
 
@@ -170,36 +212,47 @@ async def create_correlation_matrix(
     if filters:
         try:
             for item in filters.split(","):
-                parts = item.strip().split(" ", 2)  # Split into max 3 parts: column, operator, value
-                if len(parts) != 3:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Each filter must be in the format 'column operator value'. Example: 'Age >= 30, Gender = Female, Avg >= 4.5'"
-                    )
-                col, op, val = parts
-                col = col.strip()
-                op = op.strip()
-                val = val.strip().strip("'\"")  # Remove surrounding quotes if present
+                # Find the last occurrence of each operator to handle spaces in column names
+                last_operator_pos = -1
+                last_operator = None
+                for op in valid_operators:
+                    pos = item.rfind(op)
+                    if pos > last_operator_pos:
+                        last_operator_pos = pos
+                        last_operator = op
 
-                if op not in valid_operators:
+                if last_operator_pos == -1:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Invalid operator '{op}'. Allowed operators: {', '.join(valid_operators)}"
+                        detail=f"No valid operator found in filter: {item}"
                     )
+
+                # Split on the last occurrence of the operator
+                col = item[:last_operator_pos].strip()
+                # Get the value part and remove any leading operator
+                val = item[last_operator_pos + len(last_operator):].strip().strip("'\"")  # Remove surrounding quotes if present
+                # Remove any leading operator from the value
+                for op in valid_operators:
+                    if val.startswith(op):
+                        val = val[len(op):].strip()
+                        break
+
                 if not col or not val:
                     raise HTTPException(
                         status_code=400,
                         detail="Filter keys and values cannot be empty"
                     )
+
                 # Convert numeric values properly
-                if val.replace('.', '', 1).isdigit():
+                if val.replace('.', '', 1).isdigit():  # Checks if it's a number (int or float)
                     val = float(val) if '.' in val else int(val)
 
                 # Separate filters for original dataset vs. computed columns
                 if col in ["Low", "Mod", "High", "Avg"]:
-                    post_transform_filters[f"{col} {op}"] = val
+                    post_transform_filters[col] = {"operator": last_operator, "value": val}
                 else:
-                    pre_transform_filters[f"{col} {op}"] = val
+                    pre_transform_filters[col] = {"operator": last_operator, "value": val}
+
         except HTTPException:
             raise
         except Exception as e:
@@ -246,10 +299,10 @@ async def create_correlation_matrix(
         
         # Apply post-transform filters if they apply to the correlation matrix (ensure these filters match column names)
         if result_df is not None and not result_df.empty:
-            for key, value in post_transform_filters.items():
-                col, op = key.split(" ", 1)  # Extract column and operator
+            for col, filter_info in post_transform_filters.items():
+                op = filter_info["operator"]
+                value = filter_info["value"]
                 if col in result_df.columns:
-                    # Using eval can be risky; ensure the input is trusted
                     result_df = result_df[eval(f"result_df[col] {op} value")]
         
         # Convert the DataFrame to a dictionary for JSON response
