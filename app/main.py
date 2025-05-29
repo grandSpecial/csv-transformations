@@ -14,7 +14,7 @@ app = FastAPI()
 async def create_counts_table(
     file: UploadFile,
     filters: Optional[str] = Query(
-        None, description="Filters in format 'key1 operator value, key2 operator value'. Example: 'Age >= 30, Gender = Female, Avg >= 4.5'"
+        None, description="Filters in format 'key1 operator value; key2 operator value'. Example: 'Age >= 30; Gender = Female; Avg >= 4.5'. Use semicolons to separate multiple filters."
     ),
     group_filter: Optional[str] = Query(
         None, description="Filter by group membership (Low, Mod, High) for a specific question. Example: 'I am excited to work most days.:Low'"
@@ -39,72 +39,76 @@ async def create_counts_table(
             filters = unquote(filters)
             print("Decoded filters:", filters)
             
-            # Instead of splitting on commas, we'll process the entire string as one filter
-            item = filters.strip()
-            print(f"\nProcessing filter item: '{item}'")
-            
-            # Find the last occurrence of each operator to handle spaces in column names
-            last_operator_pos = -1
-            last_operator = None
-            
-            # First, try to find the last occurrence of each operator
-            print("Trying to find operators with spaces...")
-            for op in sorted(valid_operators, key=len, reverse=True):  # Sort by length to match longer operators first
-                # Look for the operator with spaces around it to avoid matching parts of words
-                search_str = f" {op} "
-                pos = item.rfind(search_str)
-                print(f"Looking for '{search_str}' in '{item}', found at position: {pos}")
-                if pos > last_operator_pos:
-                    last_operator_pos = pos
-                    last_operator = op
-                    print(f"Found operator '{op}' at position {pos}")
-            
-            # If no operator found with spaces, try without spaces
-            if last_operator_pos == -1:
-                print("No operators found with spaces, trying without spaces...")
-                for op in sorted(valid_operators, key=len, reverse=True):
-                    pos = item.rfind(op)
-                    print(f"Looking for '{op}' in '{item}', found at position: {pos}")
+            # Split on semicolons instead of commas
+            for item in filters.split(";"):
+                item = item.strip()
+                if not item:  # Skip empty filters
+                    continue
+                    
+                print(f"\nProcessing filter item: '{item}'")
+                
+                # Find the last occurrence of each operator to handle spaces in column names
+                last_operator_pos = -1
+                last_operator = None
+                
+                # First, try to find the last occurrence of each operator
+                print("Trying to find operators with spaces...")
+                for op in sorted(valid_operators, key=len, reverse=True):  # Sort by length to match longer operators first
+                    # Look for the operator with spaces around it to avoid matching parts of words
+                    search_str = f" {op} "
+                    pos = item.rfind(search_str)
+                    print(f"Looking for '{search_str}' in '{item}', found at position: {pos}")
                     if pos > last_operator_pos:
                         last_operator_pos = pos
                         last_operator = op
                         print(f"Found operator '{op}' at position {pos}")
+                
+                # If no operator found with spaces, try without spaces
+                if last_operator_pos == -1:
+                    print("No operators found with spaces, trying without spaces...")
+                    for op in sorted(valid_operators, key=len, reverse=True):
+                        pos = item.rfind(op)
+                        print(f"Looking for '{op}' in '{item}', found at position: {pos}")
+                        if pos > last_operator_pos:
+                            last_operator_pos = pos
+                            last_operator = op
+                            print(f"Found operator '{op}' at position {pos}")
 
-            if last_operator_pos == -1:
-                print("No valid operator found in the filter")
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"No valid operator found in filter: {item}"
-                )
+                if last_operator_pos == -1:
+                    print("No valid operator found in the filter")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"No valid operator found in filter: {item}"
+                    )
 
-            # Split on the last occurrence of the operator
-            col = item[:last_operator_pos].strip()
-            # Get the value part and remove any leading operator
-            val = item[last_operator_pos + len(last_operator):].strip().strip("'\"")  # Remove surrounding quotes if present
-            # Remove any leading operator from the value
-            for op in valid_operators:
-                if val.startswith(op):
-                    val = val[len(op):].strip()
-                    break
+                # Split on the last occurrence of the operator
+                col = item[:last_operator_pos].strip()
+                # Get the value part and remove any leading operator
+                val = item[last_operator_pos + len(last_operator):].strip().strip("'\"")  # Remove surrounding quotes if present
+                # Remove any leading operator from the value
+                for op in valid_operators:
+                    if val.startswith(op):
+                        val = val[len(op):].strip()
+                        break
 
-            if not col or not val:
-                print("Empty column or value after splitting")
-                raise HTTPException(
-                    status_code=400,
-                    detail="Filter keys and values cannot be empty"
-                )
+                if not col or not val:
+                    print("Empty column or value after splitting")
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Filter keys and values cannot be empty"
+                    )
 
-            print(f"Successfully parsed filter - Column: '{col}', Operator: '{last_operator}', Value: '{val}'")
+                print(f"Successfully parsed filter - Column: '{col}', Operator: '{last_operator}', Value: '{val}'")
 
-            # Convert numeric values properly
-            if val.replace('.', '', 1).isdigit():  # Checks if it's a number (int or float)
-                val = float(val) if '.' in val else int(val)
+                # Convert numeric values properly
+                if val.replace('.', '', 1).isdigit():  # Checks if it's a number (int or float)
+                    val = float(val) if '.' in val else int(val)
 
-            # Separate filters for original dataset vs. computed columns
-            if col in ["Low", "Mod", "High", "Avg"]:
-                post_transform_filters[col] = {"operator": last_operator, "value": val}
-            else:
-                pre_transform_filters[col] = {"operator": last_operator, "value": val}
+                # Separate filters for original dataset vs. computed columns
+                if col in ["Low", "Mod", "High", "Avg"]:
+                    post_transform_filters[col] = {"operator": last_operator, "value": val}
+                else:
+                    pre_transform_filters[col] = {"operator": last_operator, "value": val}
 
         except HTTPException:
             raise
